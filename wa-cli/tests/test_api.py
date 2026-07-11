@@ -115,3 +115,47 @@ def test_bridge_alive_uses_short_default_timeout():
     request = respx.calls.last.request
     assert request.method == "GET"
     assert request.url == f"{BASE_URL}/"
+
+
+@respx.mock
+def test_send_message_plain_text_error_body_is_clean_failure():
+    respx.post(f"{BASE_URL}/api/send").mock(
+        return_value=httpx.Response(400, text="Recipient is required\n")
+    )
+
+    ok, detail = api.send_message("", "hello", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == "Recipient is required"
+
+
+@respx.mock
+def test_send_message_empty_non_json_body_reports_http_status():
+    respx.post(f"{BASE_URL}/api/send").mock(return_value=httpx.Response(405, text=""))
+
+    ok, detail = api.send_message("14157863858", "hello", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == "bridge returned HTTP 405"
+
+
+@respx.mock
+def test_send_message_timeout_maps_to_actionable_detail():
+    respx.post(f"{BASE_URL}/api/send").mock(side_effect=httpx.ReadTimeout("timed out"))
+
+    ok, detail = api.send_message("14157863858", "hello", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == api.TIMEOUT_DETAIL
+
+
+@respx.mock
+def test_send_message_sets_a_timeout_on_the_post():
+    route = respx.post(f"{BASE_URL}/api/send").mock(
+        return_value=httpx.Response(200, json={"success": True, "message": "sent"})
+    )
+
+    api.send_message("14157863858", "hello", base_url=BASE_URL)
+
+    request = route.calls.last.request
+    assert request.extensions["timeout"]["read"] == api.SEND_TIMEOUT

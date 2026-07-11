@@ -43,7 +43,8 @@ def state_dir() -> Path:
     if xdg_state_home:
         path = Path(xdg_state_home) / "wa-cli"
     else:
-        path = Path(os.environ["HOME"]) / ".wa-cli"
+        home = os.environ.get("HOME")
+        path = (Path(home) if home else Path.home()) / ".wa-cli"
 
     path.mkdir(parents=True, exist_ok=True)
     return path

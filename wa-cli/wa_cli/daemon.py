@@ -182,6 +182,9 @@ def follow_step(logfile: Path, offset: int) -> tuple[list[str], int]:
     actual blocking follow loop.
     """
     try:
+        if logfile.stat().st_size < offset:
+            # Log was truncated/rotated externally; restart from the top.
+            offset = 0
         with open(logfile, "r") as fh:
             fh.seek(offset)
             new_lines = fh.readlines()

@@ -191,8 +191,8 @@ wa down
 ### State directory
 
 `wa` stores pidfiles and logs outside the repo, under
-`${XDG_STATE_HOME:-~/.local/state}/wa-cli` if `XDG_STATE_HOME` is set, otherwise
-`~/.wa-cli`. This directory contains `bridge.pid`, `bridge.log`, `mcp.pid`, `mcp.log`.
+`$XDG_STATE_HOME/wa-cli` if `XDG_STATE_HOME` is set, otherwise `~/.wa-cli`.
+This directory contains `bridge.pid`, `bridge.log`, `mcp.pid`, `mcp.log`.
 
 > **Sensitive data warning:** `bridge.log` and `mcp.log` under the `wa` state directory
 > can contain real WhatsApp message content and contact identifiers logged by the

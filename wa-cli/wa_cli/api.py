@@ -11,6 +11,8 @@ from __future__ import annotations
 import httpx
 
 CONNECT_ERROR_DETAIL = "bridge not running — try `wa up`"
+TIMEOUT_DETAIL = "bridge did not respond in time — check `wa logs`"
+SEND_TIMEOUT = 30.0
 
 
 def send_message(recipient: str, message: str, *, base_url: str) -> tuple[bool, str]:
@@ -23,11 +25,18 @@ def send_message(recipient: str, message: str, *, base_url: str) -> tuple[bool, 
         response = httpx.post(
             f"{base_url}/api/send",
             json={"recipient": recipient, "message": message},
+            timeout=SEND_TIMEOUT,
         )
     except httpx.ConnectError:
         return False, CONNECT_ERROR_DETAIL
+    except httpx.TimeoutException:
+        return False, TIMEOUT_DETAIL
 
-    body = response.json()
+    try:
+        body = response.json()
+    except ValueError:
+        # The bridge rejects bad requests with plain-text http.Error bodies.
+        return False, response.text.strip() or f"bridge returned HTTP {response.status_code}"
     return bool(body.get("success")), body.get("message", "")
 
 

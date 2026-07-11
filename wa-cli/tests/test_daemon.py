@@ -465,3 +465,15 @@ def test_tail_lines_missing_file_returns_empty(tmp_path):
     log = tmp_path / "does-not-exist.log"
 
     assert daemon.tail_lines(log, 50) == []
+
+
+def test_follow_step_resets_offset_when_log_truncated(tmp_path):
+    logfile = tmp_path / "svc.log"
+    logfile.write_text("line one\nline two\n")
+    _, offset = daemon.follow_step(logfile, 0)
+
+    logfile.write_text("fresh\n")  # externally truncated/rotated
+    lines, new_offset = daemon.follow_step(logfile, offset)
+
+    assert lines == ["fresh\n"]
+    assert new_offset == len("fresh\n")

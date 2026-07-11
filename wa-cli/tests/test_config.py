@@ -166,3 +166,14 @@ def test_messages_db_path(tmp_path, monkeypatch):
 
 def test_bridge_url_constant():
     assert config.bridge_url() == "http://localhost:8080"
+
+
+def test_state_dir_falls_back_to_path_home_when_home_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.setattr(config.Path, "home", classmethod(lambda cls: tmp_path))
+
+    result = config.state_dir()
+
+    assert result == tmp_path / ".wa-cli"
+    assert result.is_dir()
