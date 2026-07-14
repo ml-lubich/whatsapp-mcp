@@ -106,6 +106,102 @@ Without this setup, you'll likely run into errors like:
 
 > `Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work.`
 
+## CLI (`wa`)
+
+This repo also ships `wa`, a gradient-styled Python CLI that operates the bridge and
+MCP server as background daemons, sends messages via the bridge REST API, and reads
+contacts/chats directly from the bridge's local SQLite stores (read-only). It's a
+developer/operator convenience layer — it doesn't replace the MCP server or the bridge.
+
+### Installing `wa`
+
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
+
+```bash
+cd wa-cli
+uv sync
+uv run wa --help
+```
+
+Or install it as a standalone tool so `wa` is on your `PATH`:
+
+```bash
+uv tool install ./wa-cli
+```
+
+### Before you start: authenticate the bridge
+
+`wa up` starts the bridge process, but a **reachable bridge is not the same as an
+authenticated one**. On first run the bridge still needs the QR-code scan described in
+[Installation](#installation) above (run `cd whatsapp-bridge && go run main.go` once,
+scan the code with your phone) before `wa send`/`wa contacts`/`wa chats` will return
+real data. `wa status` and `wa doctor` report REST reachability on port 8080, not
+WhatsApp auth state — a "bridge up" badge only means the process is listening.
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `wa up` | Start the bridge and MCP server as detached background daemons (idempotent). |
+| `wa down` | Stop both daemons (SIGTERM, escalating to SIGKILL). |
+| `wa status` | Show PID and reachability for both daemons. |
+| `wa logs [-f]` | Tail the last 50 lines of both daemon logs; `-f`/`--follow` streams new lines. |
+| `wa send <recipient> <message>` | Send a WhatsApp message through the bridge REST API. |
+| `wa contacts <query>` | Search contacts (read-only) in the local contacts store. |
+| `wa chats [--limit N]` | List recent chats (read-only), most recent first. |
+| `wa doctor` | Run aggregated health checks (binary, `uv`, daemons, DBs) with an overall verdict. |
+
+Run `wa <command> --help` for full per-command help.
+
+### Usage examples
+
+```bash
+# Start both daemons in the background
+wa up
+
+# Check daemon status and bridge reachability
+wa status
+
+# Tail the last 50 log lines from both daemons
+wa logs
+
+# Follow logs live
+wa logs -f
+
+# Send a message (recipient can be a phone number, a full JID like
+# 15551234567@s.whatsapp.net, an @lid JID, or a @g.us group JID)
+wa send 15551234567 "hello from wa"
+
+# Search contacts by name, push name, business name, or JID substring
+wa contacts "jane"
+
+# List the 20 most recent chats (default)
+wa chats
+
+# List the 5 most recent chats
+wa chats --limit 5
+
+# Run health checks
+wa doctor
+
+# Stop both daemons
+wa down
+```
+
+### State directory
+
+`wa` stores pidfiles and logs outside the repo, under
+`$XDG_STATE_HOME/wa-cli` if `XDG_STATE_HOME` is set, otherwise `~/.wa-cli`.
+This directory contains `bridge.pid`, `bridge.log`, `mcp.pid`, `mcp.log`.
+
+> **Sensitive data warning:** `bridge.log` and `mcp.log` under the `wa` state directory
+> can contain real WhatsApp message content and contact identifiers logged by the
+> bridge/MCP processes. Treat this directory as sensitive — don't paste its contents
+> into issues, chats, or logs you share, and don't commit it anywhere.
+
+`wa` never writes to `whatsapp-bridge/store/` — contacts/chats queries open the SQLite
+databases read-only (`mode=ro`) and the bridge/MCP processes are the only writers.
+
 ## Architecture Overview
 
 This application consists of two main components:

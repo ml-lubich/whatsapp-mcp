@@ -1,0 +1,198 @@
+"""Typer app wiring all eight `wa` commands.
+
+Renders every output via wa_cli.ui (banner, badges, styled tables, error
+panels) and delegates to config/api/db/daemon for behavior. Every command
+exits non-zero on failure via typer.Exit(code=1).
+"""
+
+from __future__ import annotations
+
+import shutil
+import time
+from pathlib import Path
+
+import typer
+
+from wa_cli import api, config, daemon, db, ui
+
+app = typer.Typer(
+    name="wa",
+    help="Operate the local WhatsApp bridge + MCP stack.",
+    no_args_is_help=True,
+)
+
+DEFAULT_TAIL_LINES = 50
+
+
+def _fail(msg: str) -> None:
+    ui.console.print(ui.error_panel(msg))
+    raise typer.Exit(code=1)
+
+
+@app.command()
+def up() -> None:
+    """Start the bridge and MCP daemons as detached background processes."""
+    ui.console.print(ui.banner())
+    result = daemon.up_all()
+
+    bridge_state = "up" if result.bridge.healthy else "down"
+    mcp_state = "up" if (result.mcp.already_running or result.mcp.pid) else "down"
+
+    bridge_note = "already running" if result.bridge.already_running else f"started (pid {result.bridge.pid})"
+    mcp_note = "already running" if result.mcp.already_running else f"started (pid {result.mcp.pid})"
+
+    ui.console.print(ui.badge(bridge_state), f"bridge — {bridge_note}")
+    ui.console.print(ui.badge(mcp_state), f"mcp — {mcp_note}")
+
+    if not result.bridge.healthy:
+        _fail("bridge did not become healthy within the health-check window")
+
+
+@app.command()
+def down() -> None:
+    """Stop the bridge and MCP daemons."""
+    daemon.down_all()
+    ui.console.print(ui.badge("down"), "bridge and mcp stopped")
+
+
+@app.command()
+def status() -> None:
+    """Show daemon status: pid, alive state, and bridge REST reachability."""
+    ui.console.print(ui.banner())
+    statuses = daemon.statuses()
+
+    table = ui.styled_table("wa status", ["Service", "PID", "Alive", "REST"])
+    for svc in (statuses.bridge, statuses.mcp):
+        pid_str = str(svc.pid) if svc.pid is not None else "—"
+        alive_badge = ui.badge("up" if svc.alive else "down")
+        if svc.rest_reachable is None:
+            rest_str = "—"
+        else:
+            rest_str = str(ui.badge("up" if svc.rest_reachable else "down"))
+        table.add_row(svc.name, pid_str, str(alive_badge), rest_str)
+
+    ui.console.print(table)
+
+
+@app.command()
+def logs(
+    follow: bool = typer.Option(False, "-f", "--follow", help="Stream appended log lines until interrupted."),
+) -> None:
+    """Tail the bridge and MCP daemon logs (last 50 lines by default)."""
+    bridge_log = config.bridge_log()
+    mcp_log = config.mcp_log()
+
+    if not follow:
+        for name, logfile in (("bridge", bridge_log), ("mcp", mcp_log)):
+            ui.console.print(f"── {name} ──")
+            for line in daemon.tail_lines(logfile, DEFAULT_TAIL_LINES):
+                ui.console.print(line.rstrip("\n"))
+        return
+
+    offsets = {bridge_log: 0, mcp_log: 0}
+    try:
+        while True:
+            for name, logfile in (("bridge", bridge_log), ("mcp", mcp_log)):
+                new_lines, offsets[logfile] = daemon.follow_step(logfile, offsets[logfile])
+                for line in new_lines:
+                    ui.console.print(f"[{name}] {line.rstrip(chr(10))}")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+
+
+@app.command()
+def send(recipient: str, message: str) -> None:
+    """Send a WhatsApp message via the bridge REST API.
+
+    RECIPIENT accepts any of the three JID forms (<digits>@s.whatsapp.net,
+    <digits>@lid, <digits>@g.us) or plain phone digits.
+    """
+    with ui.spinner(f"Sending to {recipient}..."):
+        ok, detail = api.send_message(recipient, message, base_url=config.bridge_url())
+
+    if ok:
+        ui.console.print(ui.badge("up"), detail or "sent")
+    else:
+        _fail(detail or "send failed")
+
+
+@app.command()
+def contacts(query: str) -> None:
+    """Search contacts by name, push name, business name, or JID."""
+    db_path = config.contacts_db()
+    if not db_path.exists():
+        _fail(f"contacts database not found at {db_path} — has the bridge ever run?")
+
+    results = db.search_contacts(db_path, query)
+
+    table = ui.styled_table("wa contacts", ["JID", "Name", "Push name", "Business name"])
+    for c in results:
+        name = c.full_name or c.push_name or c.first_name
+        table.add_row(c.their_jid, name, c.push_name, c.business_name)
+
+    ui.console.print(table)
+    ui.console.print(f"{len(results)} match(es)")
+
+
+@app.command()
+def chats(limit: int = typer.Option(20, "--limit", help="Number of chats to show.")) -> None:
+    """List the most recently active chats."""
+    db_path = config.messages_db()
+    if not db_path.exists():
+        _fail(f"messages database not found at {db_path} — has the bridge ever run?")
+
+    results = db.list_chats(db_path, limit=limit)
+
+    table = ui.styled_table("wa chats", ["Name", "JID", "Last activity", "Kind"])
+    for c in results:
+        table.add_row(c.name, c.jid, c.last_message_time.isoformat(), c.kind)
+
+    ui.console.print(table)
+
+
+@app.command()
+def doctor() -> None:
+    """Aggregated health report: binary, uv, daemons, REST, and store DBs."""
+    ui.console.print(ui.banner())
+    checks: list[tuple[str, bool, str]] = []
+
+    bridge_bin = config.bridge_binary()
+    bridge_bin_ok = bridge_bin.exists() and (Path(bridge_bin).stat().st_mode & 0o111 != 0)
+    checks.append(("bridge binary present & executable", bridge_bin_ok, f"expected at {bridge_bin}"))
+
+    uv_ok = shutil.which("uv") is not None
+    checks.append(("uv on PATH", uv_ok, "install uv: https://docs.astral.sh/uv/"))
+
+    statuses = daemon.statuses()
+    daemons_ok = statuses.bridge.alive and statuses.mcp.alive
+    checks.append(("daemons running", daemons_ok, "run `wa up` to start the bridge and mcp daemons"))
+
+    rest_ok = bool(statuses.bridge.rest_reachable)
+    checks.append(("bridge REST reachable on 8080", rest_ok, "run `wa up` or check bridge.log"))
+
+    dbs_ok = True
+    db_detail = ""
+    for label, path, check in (
+        ("whatsapp.db", config.contacts_db(), lambda p: db.search_contacts(p, "")),
+        ("messages.db", config.messages_db(), lambda p: db.list_chats(p, limit=1)),
+    ):
+        try:
+            if not path.exists():
+                raise FileNotFoundError(path)
+            check(path)
+        except Exception:
+            dbs_ok = False
+            db_detail = f"{label} not present or unreadable at {path}"
+    checks.append(("store DBs present & readable", dbs_ok, db_detail or "check the store/ directory"))
+
+    all_ok = True
+    for label, ok, hint in checks:
+        state = "up" if ok else "down"
+        ui.console.print(ui.badge(state), label if ok else f"{label} — {hint}")
+        all_ok = all_ok and ok
+
+    if all_ok:
+        ui.console.print(ui.badge("up"), "all checks passed")
+    else:
+        _fail("one or more doctor checks failed")
