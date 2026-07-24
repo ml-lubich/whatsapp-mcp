@@ -1,7 +1,7 @@
 [project]
-name = "mac-wa"
-version = "0.1.0"
-description = "Gradient-styled operator CLI for the local WhatsApp bridge + MCP stack"
+name = "wa-client"
+version = "0.1.1"
+description = "wa-client — WhatsApp CLI (wa) + agent schema. Pair with package wa-mcp. Typer"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
