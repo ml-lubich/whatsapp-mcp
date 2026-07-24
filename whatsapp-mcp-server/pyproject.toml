@@ -1,7 +1,7 @@
 [project]
-name = "wa-mcp"
+name = "mac-wa-mcp"
 version = "0.1.0"
-description = "wa-mcp — WhatsApp MCP server (stdio). Pair with wa-client (wa CLI)"
+description = "wa-mcp MCP server (stdio). Product family: wa-mcp. Script: wa-mcp"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
