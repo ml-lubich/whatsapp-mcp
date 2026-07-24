@@ -7,18 +7,20 @@ exits non-zero on failure via typer.Exit(code=1).
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
 
 import typer
 
-from wa_cli import api, config, daemon, db, ui
+from wa_cli import agent, api, config, daemon, db, ui
 
 app = typer.Typer(
     name="wa",
     help="Operate the local WhatsApp bridge + MCP stack.",
     no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 DEFAULT_TAIL_LINES = 50
@@ -196,3 +198,24 @@ def doctor() -> None:
         ui.console.print(ui.badge("up"), "all checks passed")
     else:
         _fail("one or more doctor checks failed")
+
+
+agent_app = typer.Typer(
+    name="agent",
+    help="Machine-readable schema and playbook for LLM/automation use.",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command("schema")
+def agent_schema_cmd() -> None:
+    """Print JSON schema of every stable command + params."""
+    typer.echo(json.dumps(agent.build_schema(), indent=2))
+
+
+@agent_app.command("guide")
+def agent_guide_cmd() -> None:
+    """Print a short markdown playbook for LLM agents."""
+    typer.echo(agent.build_guide(), nl=False)

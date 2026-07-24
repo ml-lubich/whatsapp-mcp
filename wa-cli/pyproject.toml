@@ -1,14 +1,18 @@
 [project]
-name = "wa-cli"
+name = "mac-wa"
 version = "0.1.0"
 description = "Gradient-styled operator CLI for the local WhatsApp bridge + MCP stack"
-readme = "README-dev.md"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "httpx>=0.27",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ml-lubich/whatsapp-mcp"
+Repository = "https://github.com/ml-lubich/whatsapp-mcp"
 
 [project.scripts]
 wa = "wa_cli.main:app"

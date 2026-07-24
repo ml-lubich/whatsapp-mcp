@@ -1,3 +1,5 @@
+> **CLI + MCP (imsg pattern):** `wa` / `wa-mcp` — see [README.CLI.md](README.CLI.md)
+
 # WhatsApp MCP Server
 
 This is a Model Context Protocol (MCP) server for WhatsApp.
