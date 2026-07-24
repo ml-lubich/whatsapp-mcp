@@ -246,6 +246,10 @@ def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
             "message": "Failed to download media"
         }
 
+def run() -> None:
+    """Console entry point for `wa-mcp` (stdio MCP server)."""
+    mcp.run(transport="stdio")
+
+
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+    run()

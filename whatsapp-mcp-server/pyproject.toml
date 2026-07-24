@@ -1,11 +1,27 @@
 [project]
-name = "whatsapp-mcp-server"
+name = "mac-wa-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "WhatsApp MCP server (stdio) — pair with `wa` CLI (mac-wa)"
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ml-lubich" }]
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.6.0",
     "requests>=2.32.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ml-lubich/whatsapp-mcp"
+Repository = "https://github.com/ml-lubich/whatsapp-mcp"
+
+[project.scripts]
+wa-mcp = "main:run"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main", "whatsapp", "audio"]
