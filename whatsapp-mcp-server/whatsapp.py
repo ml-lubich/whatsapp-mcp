@@ -223,6 +223,50 @@ def list_messages(
             conn.close()
 
 
+def get_recent_messages(chat_jid: str, limit: int = 10) -> List[Message]:
+    """Get the most recent messages in a chat, oldest first.
+
+    Backs the send-message duplicate guard (checking outgoing text against
+    what we've already sent) and the recent_context attached to send results.
+    """
+    try:
+        conn = sqlite3.connect(MESSAGES_DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT messages.timestamp, messages.sender, chats.name, messages.content, messages.is_from_me, messages.chat_jid, messages.id, messages.media_type
+            FROM messages
+            JOIN chats ON messages.chat_jid = chats.jid
+            WHERE messages.chat_jid = ?
+            ORDER BY messages.timestamp DESC
+            LIMIT ?
+        """, (chat_jid, limit))
+
+        rows = cursor.fetchall()
+        result = [
+            Message(
+                timestamp=datetime.fromisoformat(row[0]),
+                sender=row[1],
+                chat_name=row[2],
+                content=row[3],
+                is_from_me=row[4],
+                chat_jid=row[5],
+                id=row[6],
+                media_type=row[7]
+            )
+            for row in rows
+        ]
+        result.reverse()  # oldest first
+        return result
+
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
 def get_message_context(
     message_id: str,
     before: int = 5,

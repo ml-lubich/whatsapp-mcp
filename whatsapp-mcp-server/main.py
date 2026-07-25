@@ -1,3 +1,4 @@
+import difflib
 from typing import List, Dict, Any, Optional
 from mcp.server.fastmcp import FastMCP
 from whatsapp import (
@@ -9,6 +10,7 @@ from whatsapp import (
     get_contact_chats as whatsapp_get_contact_chats,
     get_last_interaction as whatsapp_get_last_interaction,
     get_message_context as whatsapp_get_message_context,
+    get_recent_messages as whatsapp_get_recent_messages,
     send_message as whatsapp_send_message,
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
@@ -17,6 +19,51 @@ from whatsapp import (
 
 # Initialize FastMCP server
 mcp = FastMCP("whatsapp")
+
+# Anti-repeat guard: how many trailing messages to inspect, and how close a
+# match has to be (via difflib.SequenceMatcher ratio) to count as a repeat.
+RECENT_CONTEXT_LIMIT = 10
+DUPLICATE_RATIO_THRESHOLD = 0.92
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _resolve_chat_jid(recipient: str) -> Optional[str]:
+    """Best-effort JID for a recipient, for looking up recent messages."""
+    if "@" in recipient:
+        return recipient
+    chat = whatsapp_get_direct_chat_by_contact(recipient)
+    return chat.jid if chat else None
+
+
+def _find_duplicate_outbound(message: str, recent_messages: List[Any]) -> Optional[Any]:
+    """Return the recent outbound message this text duplicates, or None."""
+    normalized_outgoing = _normalize_text(message)
+    for msg in recent_messages:
+        if not msg.is_from_me:
+            continue
+        normalized_existing = _normalize_text(msg.content or "")
+        if normalized_existing == normalized_outgoing:
+            return msg
+        ratio = difflib.SequenceMatcher(None, normalized_existing, normalized_outgoing).ratio()
+        if ratio >= DUPLICATE_RATIO_THRESHOLD:
+            return msg
+    return None
+
+
+def _format_recent_context(recent_messages: List[Any]) -> List[Dict[str, Any]]:
+    """Compact recent-thread view returned alongside every send_message result."""
+    context = []
+    for msg in recent_messages:
+        text = msg.content or ""
+        context.append({
+            "from_me": bool(msg.is_from_me),
+            "timestamp": msg.timestamp.isoformat(),
+            "text": text[:200],
+        })
+    return context
 
 @mcp.tool()
 def search_contacts(query: str) -> List[Dict[str, Any]]:
@@ -157,30 +204,62 @@ def get_message_context(
 @mcp.tool()
 def send_message(
     recipient: str,
-    message: str
+    message: str,
+    force: bool = False
 ) -> Dict[str, Any]:
     """Send a WhatsApp message to a person or group. For group chats use the JID.
+
+    Review recent_context before composing; never resend a message already in
+    the thread or re-answer something the other party already replied to;
+    near-duplicate outbound messages are blocked unless force=true.
 
     Args:
         recipient: The recipient - either a phone number with country code but no + or other symbols,
                  or a JID (e.g., "123456789@s.whatsapp.net" or a group JID like "123456789@g.us")
         message: The message text to send
-    
+        force: If True, send even if it looks like a duplicate of a message we already sent (default False)
+
     Returns:
-        A dictionary containing success status and a status message
+        A dictionary containing success status, a status message, and recent_context
+        (the last messages in the thread, so the caller has context before it sends anything else)
     """
     # Validate input
     if not recipient:
         return {
             "success": False,
-            "message": "Recipient must be provided"
+            "message": "Recipient must be provided",
+            "recent_context": []
         }
-    
+
+    recent_messages: List[Any] = []
+    try:
+        chat_jid = _resolve_chat_jid(recipient)
+        if chat_jid:
+            recent_messages = whatsapp_get_recent_messages(chat_jid, limit=RECENT_CONTEXT_LIMIT)
+    except Exception:
+        # Context is a nice-to-have; a fetch failure must never block a real send.
+        recent_messages = []
+
+    recent_context = _format_recent_context(recent_messages)
+
+    if not force:
+        duplicate = _find_duplicate_outbound(message, recent_messages)
+        if duplicate is not None:
+            return {
+                "success": False,
+                "message": (
+                    "Not sent: this message looks identical to one we already sent at "
+                    f"{duplicate.timestamp.isoformat()}. Pass force=true to send it anyway."
+                ),
+                "recent_context": recent_context
+            }
+
     # Call the whatsapp_send_message function with the unified recipient parameter
     success, status_message = whatsapp_send_message(recipient, message)
     return {
         "success": success,
-        "message": status_message
+        "message": status_message,
+        "recent_context": recent_context
     }
 
 @mcp.tool()
