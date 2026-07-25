@@ -7,6 +7,7 @@ exits non-zero on failure via typer.Exit(code=1).
 
 from __future__ import annotations
 
+import difflib
 import json
 import shutil
 import time
@@ -24,6 +25,58 @@ app = typer.Typer(
 )
 
 DEFAULT_TAIL_LINES = 50
+
+# Anti-repeat guard: how many trailing messages to inspect, and how close a
+# match has to be (via difflib.SequenceMatcher ratio) to count as a repeat.
+RECENT_CONTEXT_LIMIT = 10
+DUPLICATE_RATIO_THRESHOLD = 0.92
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _fetch_recent(recipient: str) -> list[db.Message]:
+    """Best-effort recent-thread fetch for the duplicate guard.
+
+    Any failure (missing DB, unreadable file, unresolved chat) yields an
+    empty list rather than blocking the send — context is a nice-to-have,
+    a fetch failure must never swallow a real send.
+    """
+    try:
+        db_path = config.messages_db()
+        if not db_path.exists():
+            return []
+        chat_jid = db.resolve_chat_jid(db_path, recipient)
+        if not chat_jid:
+            return []
+        return db.recent_messages(db_path, chat_jid, limit=RECENT_CONTEXT_LIMIT)
+    except Exception:
+        return []
+
+
+def _find_duplicate_outbound(message: str, recent: list[db.Message]) -> db.Message | None:
+    """Return the recent outbound message this text duplicates, or None."""
+    normalized_outgoing = _normalize_text(message)
+    for msg in recent:
+        if not msg.is_from_me:
+            continue
+        normalized_existing = _normalize_text(msg.text)
+        if normalized_existing == normalized_outgoing:
+            return msg
+        ratio = difflib.SequenceMatcher(None, normalized_existing, normalized_outgoing).ratio()
+        if ratio >= DUPLICATE_RATIO_THRESHOLD:
+            return msg
+    return None
+
+
+def _render_recent_thread(recent: list[db.Message]) -> str:
+    """Compact recent-thread view, printed before every send attempt."""
+    lines = ["recent thread:"]
+    for m in recent:
+        who = "me" if m.is_from_me else "them"
+        lines.append(f"  [{who}] {m.timestamp.isoformat()} {m.text[:200]}")
+    return "\n".join(lines)
 
 
 def _fail(msg: str) -> None:
@@ -104,12 +157,35 @@ def logs(
 
 
 @app.command()
-def send(recipient: str, message: str) -> None:
+def send(
+    recipient: str,
+    message: str,
+    force: bool = typer.Option(
+        False, "--force", help="Send even if it looks identical to a message we already sent."
+    ),
+) -> None:
     """Send a WhatsApp message via the bridge REST API.
 
     RECIPIENT accepts any of the three JID forms (<digits>@s.whatsapp.net,
     <digits>@lid, <digits>@g.us) or plain phone digits.
+
+    Review the recent thread printed below before composing; never resend a
+    message already in it or re-answer something the other party already
+    replied to. Near-duplicate outbound messages are blocked unless --force
+    is passed.
     """
+    recent = _fetch_recent(recipient)
+    if recent:
+        ui.console.print(_render_recent_thread(recent))
+
+    if not force:
+        duplicate = _find_duplicate_outbound(message, recent)
+        if duplicate is not None:
+            _fail(
+                "not sent: this message looks identical to one we already sent at "
+                f"{duplicate.timestamp.isoformat()}. Pass --force to send it anyway."
+            )
+
     with ui.spinner(f"Sending to {recipient}..."):
         ok, detail = api.send_message(recipient, message, base_url=config.bridge_url())
 

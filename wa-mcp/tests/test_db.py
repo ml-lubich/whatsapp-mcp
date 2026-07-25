@@ -207,6 +207,55 @@ def test_list_chats_opens_db_read_only(sample_dbs):
     assert chats  # sanity: reads still work over the ro connection
 
 
+# --- resolve_chat_jid() ---
+
+
+def test_resolve_chat_jid_returns_jid_forms_as_is(sample_dbs):
+    assert db.resolve_chat_jid(sample_dbs.messages_db, "14157863858@s.whatsapp.net") == (
+        "14157863858@s.whatsapp.net"
+    )
+
+
+def test_resolve_chat_jid_resolves_plain_digits(sample_dbs):
+    assert db.resolve_chat_jid(sample_dbs.messages_db, "14157863858") == "14157863858@s.whatsapp.net"
+
+
+def test_resolve_chat_jid_returns_none_when_no_match(sample_dbs):
+    assert db.resolve_chat_jid(sample_dbs.messages_db, "00000000000") is None
+
+
+# --- recent_messages() ---
+
+
+def test_recent_messages_returns_oldest_first(sample_dbs):
+    messages = db.recent_messages(sample_dbs.messages_db, "14157863858@s.whatsapp.net")
+
+    assert [m.text for m in messages] == [
+        "Hey are we still on for Friday?",
+        "Yes, see you then!",
+    ]
+
+
+def test_recent_messages_reports_is_from_me(sample_dbs):
+    messages = db.recent_messages(sample_dbs.messages_db, "14157863858@s.whatsapp.net")
+
+    assert messages[0].is_from_me is True
+    assert messages[1].is_from_me is False
+
+
+def test_recent_messages_honors_limit(sample_dbs):
+    messages = db.recent_messages(sample_dbs.messages_db, "14157863858@s.whatsapp.net", limit=1)
+
+    assert len(messages) == 1
+    assert messages[0].text == "Yes, see you then!"
+
+
+def test_recent_messages_empty_chat_returns_empty_list(sample_dbs):
+    messages = db.recent_messages(sample_dbs.messages_db, "120363319322076067@g.us")
+
+    assert messages == []
+
+
 def test_list_chats_empty_db_returns_empty_list(tmp_path):
     empty_db = tmp_path / "empty_messages.db"
     conn = sqlite3.connect(empty_db)

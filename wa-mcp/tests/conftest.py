@@ -154,6 +154,29 @@ def _build_messages_db(db_path: Path) -> None:
                 ),
             ],
         )
+        conn.executemany(
+            "INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                # Alice thread: one message from us, one reply from her, oldest first.
+                (
+                    "msg-1",
+                    "14157863858@s.whatsapp.net",
+                    _OUR_JID,
+                    "Hey are we still on for Friday?",
+                    "2026-07-20 10:00:00-07:00",
+                    1,
+                ),
+                (
+                    "msg-2",
+                    "14157863858@s.whatsapp.net",
+                    "14157863858@s.whatsapp.net",
+                    "Yes, see you then!",
+                    "2026-07-20 10:05:00-07:00",
+                    0,
+                ),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()

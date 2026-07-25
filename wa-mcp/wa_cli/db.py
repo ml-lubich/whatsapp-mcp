@@ -33,6 +33,13 @@ class Chat:
     kind: str
 
 
+@dataclass
+class Message:
+    is_from_me: bool
+    timestamp: datetime
+    text: str
+
+
 def _connect_ro(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
@@ -125,3 +132,52 @@ def list_chats(db_path: Path, limit: int = 20) -> list[Chat]:
             )
         )
     return chats
+
+
+def resolve_chat_jid(db_path: Path, recipient: str) -> str | None:
+    """Best-effort chat JID for a recipient, for the send-time duplicate guard.
+
+    A recipient already in JID form (contains "@") is returned as-is; plain
+    phone digits are resolved against messages.db's chats table.
+    """
+    if "@" in recipient:
+        return recipient
+
+    conn = _connect_ro(db_path)
+    try:
+        row = conn.execute(
+            "SELECT jid FROM chats WHERE jid LIKE ? LIMIT 1",
+            (f"%{recipient}%",),
+        ).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+def recent_messages(db_path: Path, chat_jid: str, limit: int = 10) -> list[Message]:
+    """Last `limit` messages in a chat, oldest first.
+
+    Backs the send-time duplicate guard and the recent-thread context printed
+    to the operator/agent before a send is attempted.
+    """
+    conn = _connect_ro(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT is_from_me, timestamp, content
+            FROM messages
+            WHERE chat_jid = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (chat_jid, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    messages = [
+        Message(is_from_me=bool(is_from_me), timestamp=datetime.fromisoformat(timestamp), text=content or "")
+        for is_from_me, timestamp, content in rows
+    ]
+    messages.reverse()
+    return messages

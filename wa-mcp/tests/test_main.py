@@ -157,6 +157,7 @@ def test_logs_follow_flag_uses_follow_step(monkeypatch, tmp_path):
 
 
 def test_send_happy_path(monkeypatch):
+    monkeypatch.setattr(main.config, "messages_db", lambda: Path("/does-not-exist"))
     monkeypatch.setattr(api, "send_message", lambda recipient, message, *, base_url: (True, "sent ok"))
 
     result = runner.invoke(main.app, ["send", "14157863858@s.whatsapp.net", "hello"])
@@ -166,6 +167,7 @@ def test_send_happy_path(monkeypatch):
 
 
 def test_send_failure_exits_nonzero(monkeypatch):
+    monkeypatch.setattr(main.config, "messages_db", lambda: Path("/does-not-exist"))
     monkeypatch.setattr(
         api, "send_message", lambda recipient, message, *, base_url: (False, "bridge not running — try `wa up`")
     )

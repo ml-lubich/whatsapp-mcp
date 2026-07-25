@@ -23,10 +23,16 @@ def build_schema() -> dict[str, Any]:
             },
             {
                 "name": "send",
-                "help": "Send WhatsApp message",
+                "help": (
+                    "Send WhatsApp message. Review recent_context/printed thread before "
+                    "composing; never resend a message already in the thread or re-answer "
+                    "something already replied to. Near-duplicate outbound messages are "
+                    "blocked unless force=true."
+                ),
                 "params": [
                     {"name": "recipient", "type": "str", "required": True, "flags": []},
                     {"name": "message", "type": "str", "required": True, "flags": []},
+                    {"name": "force", "type": "bool", "required": False, "flags": ["--force"]},
                 ],
             },
             {
@@ -58,9 +64,16 @@ wa agent schema
 wa doctor
 wa up
 wa send <jid|phone> "text"   # only when user asks
+wa send <jid|phone> "text" --force   # override the duplicate guard
 wa contacts <query>
 ```
 
 Prefer CLI for simple ops; MCP (`wa-mcp`) for complex tool-calling.
 No unsolicited digests.
+
+`wa send` prints the recent thread before sending. Review recent_context
+(MCP) / the printed thread (CLI) before composing: never resend a message
+already in the thread or re-answer something the other party already
+replied to. Near-duplicate outbound messages are blocked unless
+force=true / --force.
 """
