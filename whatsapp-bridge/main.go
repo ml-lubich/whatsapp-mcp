@@ -428,6 +428,47 @@ func extractMediaInfo(msg *waProto.Message) (mediaType string, filename string, 
 	return "", "", "", nil, nil, nil, 0
 }
 
+// Media types worth fetching the moment a message lands.
+//
+// Media used to be fetched only when something asked for it. By then WhatsApp's
+// CDN object had usually expired, so the download fell back to asking the
+// sender's phone to re-upload, which answers "media no longer available on
+// phone" — the picture is still visible in the app, but we can never get the
+// bytes. Fetching on arrival, while the link is still good, is the fix.
+//
+// An explicit allow-list rather than `mediaType != ""`: an unrecognised type
+// would fail inside downloadMedia's type switch anyway, and a background
+// goroutine that always errors is just noise in the log.
+func shouldPrefetchMedia(mediaType string) bool {
+	switch mediaType {
+	case "image", "video", "audio", "document":
+		return true
+	default:
+		return false
+	}
+}
+
+// mediaFetcher is the download seam, so the prefetch trigger can be tested
+// without a WhatsApp connection.
+type mediaFetcher func(messageID, chatJID string) error
+
+// prefetchMedia fetches a message's media in the background.
+//
+// Deliberately fire-and-forget: message handling must not block on a download,
+// and a failure here is recoverable — the HTTP endpoint can still try later,
+// and downloadMedia short-circuits if this attempt already saved the file.
+func prefetchMedia(mediaType, messageID, chatJID string, fetch mediaFetcher, logger waLog.Logger) {
+	if !shouldPrefetchMedia(mediaType) {
+		return
+	}
+	go func() {
+		if err := fetch(messageID, chatJID); err != nil {
+			// Warn, never fail: the message itself is already stored.
+			logger.Warnf("prefetch of %s media for %s failed: %v", mediaType, messageID, err)
+		}
+	}()
+}
+
 // Handle regular incoming messages with media support
 func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
 	// Save message to database
@@ -475,6 +516,20 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 	if err != nil {
 		logger.Warnf("Failed to store message: %v", err)
 	} else {
+		// Fetch the bytes now, while WhatsApp's CDN link is still valid. Waiting
+		// until something asks means falling back to a phone re-upload, which
+		// answers "media no longer available on phone".
+		prefetchMedia(mediaType, msg.Info.ID, chatJID, func(messageID, jid string) error {
+			ok, _, _, _, err := downloadMedia(client, messageStore, messageID, jid)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("download reported failure")
+			}
+			return nil
+		}, logger)
+
 		// Log message reception
 		timestamp := msg.Info.Timestamp.Format("2006-01-02 15:04:05")
 		direction := "←"
