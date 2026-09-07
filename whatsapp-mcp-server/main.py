@@ -65,6 +65,18 @@ def _format_recent_context(recent_messages: List[Any]) -> List[Dict[str, Any]]:
         })
     return context
 
+
+def _thread_head(recent_messages: List[Any]) -> Optional[str]:
+    """Identity of the newest message in the thread, or None for an empty thread.
+
+    This is the token a caller must echo back via `acknowledge` to prove it has
+    read the current tail of the conversation before posting. It is the message
+    id, which the caller can only obtain by actually looking at the thread.
+    """
+    if not recent_messages:
+        return None
+    return max(recent_messages, key=lambda m: m.timestamp).id
+
 @mcp.tool()
 def search_contacts(query: str) -> List[Dict[str, Any]]:
     """Search WhatsApp contacts by name or phone number.
@@ -205,30 +217,39 @@ def get_message_context(
 def send_message(
     recipient: str,
     message: str,
+    acknowledge: Optional[str] = None,
     force: bool = False
 ) -> Dict[str, Any]:
     """Send a WhatsApp message to a person or group. For group chats use the JID.
 
-    Review recent_context before composing; never resend a message already in
-    the thread or re-answer something the other party already replied to;
-    near-duplicate outbound messages are blocked unless force=true.
+    REVIEW BEFORE YOU SEND. Multiple agents share these chats, so a send is a
+    coordination point, not a fire-and-forget. On your first attempt, omit
+    `acknowledge`: the send is held and you get back `recent_context` (the last
+    messages in the thread) plus `thread_head`. Read that context — has someone
+    already said this? did the other party already reply? is this even still the
+    right thing to post? — then call again with `acknowledge=<thread_head>` to
+    confirm you've seen the current tail. Near-duplicate outbound messages are
+    still blocked. Both gates are bypassed with force=true (use sparingly).
 
     Args:
         recipient: The recipient - either a phone number with country code but no + or other symbols,
                  or a JID (e.g., "123456789@s.whatsapp.net" or a group JID like "123456789@g.us")
         message: The message text to send
-        force: If True, send even if it looks like a duplicate of a message we already sent (default False)
+        acknowledge: The `thread_head` token from the recent context you just reviewed.
+                 Required to send into a non-empty thread; proves you read the latest messages.
+        force: If True, send even if the review gate or duplicate guard would block (default False)
 
     Returns:
-        A dictionary containing success status, a status message, and recent_context
-        (the last messages in the thread, so the caller has context before it sends anything else)
+        A dictionary with success status, a status message, recent_context
+        (the last messages in the thread), and thread_head (the token to acknowledge).
     """
     # Validate input
     if not recipient:
         return {
             "success": False,
             "message": "Recipient must be provided",
-            "recent_context": []
+            "recent_context": [],
+            "thread_head": None
         }
 
     recent_messages: List[Any] = []
@@ -241,8 +262,25 @@ def send_message(
         recent_messages = []
 
     recent_context = _format_recent_context(recent_messages)
+    thread_head = _thread_head(recent_messages)
 
     if not force:
+        # Coordination gate: refuse to post into a live thread the caller hasn't
+        # confirmed it read. An empty thread (thread_head is None) has nothing to
+        # review, so first contact goes straight through.
+        if thread_head is not None and acknowledge != thread_head:
+            return {
+                "success": False,
+                "message": (
+                    "Not sent: review the thread first. Read the messages in recent_context "
+                    "below, make sure this message still makes sense and isn't already covered, "
+                    f"then call send_message again with acknowledge=\"{thread_head}\". "
+                    "Pass force=true only to skip this review."
+                ),
+                "recent_context": recent_context,
+                "thread_head": thread_head
+            }
+
         duplicate = _find_duplicate_outbound(message, recent_messages)
         if duplicate is not None:
             return {
@@ -251,7 +289,8 @@ def send_message(
                     "Not sent: this message looks identical to one we already sent at "
                     f"{duplicate.timestamp.isoformat()}. Pass force=true to send it anyway."
                 ),
-                "recent_context": recent_context
+                "recent_context": recent_context,
+                "thread_head": thread_head
             }
 
     # Call the whatsapp_send_message function with the unified recipient parameter
@@ -259,7 +298,8 @@ def send_message(
     return {
         "success": success,
         "message": status_message,
-        "recent_context": recent_context
+        "recent_context": recent_context,
+        "thread_head": thread_head
     }
 
 @mcp.tool()
