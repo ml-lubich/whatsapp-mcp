@@ -159,3 +159,61 @@ def test_send_message_sets_a_timeout_on_the_post():
 
     request = route.calls.last.request
     assert request.extensions["timeout"]["read"] == api.SEND_TIMEOUT
+
+
+# --- download_media() ---
+
+
+@respx.mock
+def test_download_media_success():
+    respx.post(f"{BASE_URL}/api/download").mock(
+        return_value=httpx.Response(200, json={"success": True, "filename": "photo.jpg", "path": "/path/to/photo.jpg"})
+    )
+
+    ok, filename, path = api.download_media("msg123", "chat456@s.whatsapp.net", base_url=BASE_URL)
+
+    assert ok is True
+    assert filename == "photo.jpg"
+    assert path == "/path/to/photo.jpg"
+
+
+@respx.mock
+def test_download_media_failure_json():
+    respx.post(f"{BASE_URL}/api/download").mock(
+        return_value=httpx.Response(200, json={"success": False, "message": "media expired"})
+    )
+
+    ok, filename, detail = api.download_media("msg123", "chat456@s.whatsapp.net", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == "media expired"
+
+
+@respx.mock
+def test_download_media_connect_error():
+    respx.post(f"{BASE_URL}/api/download").mock(side_effect=httpx.ConnectError("refused"))
+
+    ok, filename, detail = api.download_media("msg123", "chat456@s.whatsapp.net", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == api.CONNECT_ERROR_DETAIL
+
+
+@respx.mock
+def test_download_media_timeout():
+    respx.post(f"{BASE_URL}/api/download").mock(side_effect=httpx.TimeoutException("timed out"))
+
+    ok, filename, detail = api.download_media("msg123", "chat456@s.whatsapp.net", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == api.TIMEOUT_DETAIL
+
+
+@respx.mock
+def test_download_media_plain_text_error():
+    respx.post(f"{BASE_URL}/api/download").mock(return_value=httpx.Response(500, text="internal server error"))
+
+    ok, filename, detail = api.download_media("msg123", "chat456@s.whatsapp.net", base_url=BASE_URL)
+
+    assert ok is False
+    assert detail == "internal server error"

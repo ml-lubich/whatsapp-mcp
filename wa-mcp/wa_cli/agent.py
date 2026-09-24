@@ -47,6 +47,14 @@ def build_schema() -> dict[str, Any]:
                     {"name": "limit", "type": "int", "required": False, "flags": ["--limit"]}
                 ],
             },
+            {
+                "name": "download",
+                "help": "Download media attachment for a message",
+                "params": [
+                    {"name": "message_id", "type": "str", "required": True, "flags": []},
+                    {"name": "chat_jid", "type": "str", "required": True, "flags": []},
+                ],
+            },
             {"name": "doctor", "help": "Health report", "params": []},
             {"name": "agent schema", "help": "This JSON schema", "params": []},
             {"name": "agent guide", "help": "Markdown playbook", "params": []},

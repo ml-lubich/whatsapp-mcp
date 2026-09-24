@@ -24,6 +24,7 @@ EXPECTED_COMMANDS = {
     "send",
     "contacts",
     "chats",
+    "download",
     "doctor",
 }
 
@@ -232,6 +233,27 @@ def test_chats_db_missing_exits_nonzero(monkeypatch, tmp_path):
     result = runner.invoke(main.app, ["chats"])
 
     assert result.exit_code != 0
+
+
+# --- download ---
+
+
+def test_download_success(monkeypatch):
+    monkeypatch.setattr(main.api, "download_media", lambda m, c, base_url: (True, "doc.pdf", "/tmp/doc.pdf"))
+
+    result = runner.invoke(main.app, ["download", "msg123", "chat456@s.whatsapp.net"])
+
+    assert result.exit_code == 0
+    assert "Downloaded doc.pdf to /tmp/doc.pdf" in result.output
+
+
+def test_download_failure(monkeypatch):
+    monkeypatch.setattr(main.api, "download_media", lambda m, c, base_url: (False, "", "media not found"))
+
+    result = runner.invoke(main.app, ["download", "msg123", "chat456@s.whatsapp.net"])
+
+    assert result.exit_code != 0
+    assert "download failed: media not found" in result.output
 
 
 # --- doctor ---

@@ -230,6 +230,21 @@ def chats(limit: int = typer.Option(20, "--limit", help="Number of chats to show
 
 
 @app.command()
+def download(
+    message_id: str = typer.Argument(..., help="ID of the message with media."),
+    chat_jid: str = typer.Argument(..., help="JID of the chat containing the message."),
+) -> None:
+    """Download media attachment for a message."""
+    with ui.spinner(f"Downloading media for {message_id}..."):
+        ok, filename, path_or_detail = api.download_media(message_id, chat_jid, base_url=config.bridge_url())
+
+    if ok:
+        ui.console.print(ui.badge("up"), f"Downloaded {filename or 'media'} to {path_or_detail}")
+    else:
+        _fail(f"download failed: {path_or_detail}")
+
+
+@app.command()
 def doctor() -> None:
     """Aggregated health report: binary, uv, daemons, REST, and store DBs."""
     ui.console.print(ui.banner())

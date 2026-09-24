@@ -40,6 +40,33 @@ def send_message(recipient: str, message: str, *, base_url: str) -> tuple[bool, 
     return bool(body.get("success")), body.get("message", "")
 
 
+def download_media(message_id: str, chat_jid: str, *, base_url: str) -> tuple[bool, str, str]:
+    """POST {base_url}/api/download with {"message_id", "chat_jid"}.
+
+    Returns (ok, filename, path_or_detail).
+    """
+    try:
+        response = httpx.post(
+            f"{base_url}/api/download",
+            json={"message_id": message_id, "chat_jid": chat_jid},
+            timeout=SEND_TIMEOUT,
+        )
+    except httpx.ConnectError:
+        return False, "", CONNECT_ERROR_DETAIL
+    except httpx.TimeoutException:
+        return False, "", TIMEOUT_DETAIL
+
+    try:
+        body = response.json()
+    except ValueError:
+        return False, "", response.text.strip() or f"bridge returned HTTP {response.status_code}"
+
+    ok = bool(body.get("success"))
+    if ok:
+        return True, body.get("filename", ""), body.get("path", "")
+    return False, body.get("filename", ""), body.get("message", "download failed")
+
+
 def bridge_alive(base_url: str, timeout: float = 1.0) -> bool:
     """Check bridge liveness via a cheap GET to "/".
 
