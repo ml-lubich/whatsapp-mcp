@@ -215,9 +215,6 @@ def list_messages(
         # Format and display messages without context
         return format_messages_list(result, show_chat_info=True)    
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
     finally:
         if 'conn' in locals():
             conn.close()
@@ -259,9 +256,6 @@ def get_recent_messages(chat_jid: str, limit: int = 10) -> List[Message]:
         result.reverse()  # oldest first
         return result
 
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
     finally:
         if 'conn' in locals():
             conn.close()
@@ -426,9 +420,6 @@ def list_chats(
             
         return result
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
     finally:
         if 'conn' in locals():
             conn.close()
@@ -468,9 +459,6 @@ def search_contacts(query: str) -> List[Contact]:
             
         return result
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
     finally:
         if 'conn' in locals():
             conn.close()
@@ -519,9 +507,6 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Chat]:
             
         return result
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
     finally:
         if 'conn' in locals():
             conn.close()
@@ -568,9 +553,6 @@ def get_last_interaction(jid: str) -> str:
         
         return format_message(message)
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return None
     finally:
         if 'conn' in locals():
             conn.close()
@@ -616,9 +598,6 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[Chat]
             last_is_from_me=chat_data[5]
         )
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return None
     finally:
         if 'conn' in locals():
             conn.close()
@@ -659,9 +638,6 @@ def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[Chat]:
             last_is_from_me=chat_data[5]
         )
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return None
     finally:
         if 'conn' in locals():
             conn.close()
