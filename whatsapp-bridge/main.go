@@ -469,6 +469,22 @@ func prefetchMedia(mediaType, messageID, chatJID string, fetch mediaFetcher, log
 	}()
 }
 
+// prefetchIncomingMedia wires prefetchMedia to the real downloader. Shared by
+// every place a message (live or history-sync backfill) gets stored, so none
+// of them can silently skip the eager download.
+func prefetchIncomingMedia(client *whatsmeow.Client, messageStore *MessageStore, mediaType, messageID, chatJID string, logger waLog.Logger) {
+	prefetchMedia(mediaType, messageID, chatJID, func(messageID, jid string) error {
+		ok, _, _, _, err := downloadMedia(client, messageStore, messageID, jid)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("download reported failure")
+		}
+		return nil
+	}, logger)
+}
+
 // Handle regular incoming messages with media support
 func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
 	// Save message to database
@@ -519,16 +535,7 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 		// Fetch the bytes now, while WhatsApp's CDN link is still valid. Waiting
 		// until something asks means falling back to a phone re-upload, which
 		// answers "media no longer available on phone".
-		prefetchMedia(mediaType, msg.Info.ID, chatJID, func(messageID, jid string) error {
-			ok, _, _, _, err := downloadMedia(client, messageStore, messageID, jid)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("download reported failure")
-			}
-			return nil
-		}, logger)
+		prefetchIncomingMedia(client, messageStore, mediaType, msg.Info.ID, chatJID, logger)
 
 		// Log message reception
 		timestamp := msg.Info.Timestamp.Format("2006-01-02 15:04:05")
@@ -807,6 +814,17 @@ func retryMediaDownload(
 	)
 }
 
+// uniqueMediaFilename embeds the message ID in a stored filename so two
+// messages that share one (most often two images sent in the same second,
+// since the auto-generated name only has second resolution) never resolve to
+// the same path on disk. Documents keep their original name; the ID is just
+// appended before the extension, same as the auto-generated names.
+func uniqueMediaFilename(filename, messageID string) string {
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	return fmt.Sprintf("%s_%s%s", base, messageID, ext)
+}
+
 // Function to download media from a message
 func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, messageID, chatJID string) (bool, string, string, string, error) {
 	// Query the database for the message
@@ -844,8 +862,16 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 		return false, "", "", "", fmt.Errorf("failed to create chat directory: %v", err)
 	}
 
-	// Generate a local path for the file
-	localPath = fmt.Sprintf("%s/%s", chatDir, filename)
+	// Generate a local path for the file. The stored filename column is built
+	// from a second-resolution timestamp, so two messages landing in the same
+	// second (real case: 3BA7C31587DB3BBDA6C6 and 3B628E0E257A27EC2979, both
+	// "image_20260921_053233.jpg") would otherwise collide on disk, with the
+	// second download silently overwriting the first. Deriving the on-disk
+	// name from the message ID here — rather than from the DB column, which
+	// may predate this fix — fixes every message, old and new, with no
+	// migration needed.
+	onDiskFilename := uniqueMediaFilename(filename, messageID)
+	localPath = fmt.Sprintf("%s/%s", chatDir, onDiskFilename)
 
 	// Get absolute path
 	absPath, err := filepath.Abs(localPath)
@@ -856,7 +882,7 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 	// Check if file already exists
 	if _, err := os.Stat(localPath); err == nil {
 		// File exists, return it
-		return true, mediaType, filename, absPath, nil
+		return true, mediaType, onDiskFilename, absPath, nil
 	}
 
 	// If we don't have all the media info we need, we can't download
@@ -930,7 +956,7 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 	}
 
 	fmt.Printf("Successfully downloaded %s media to %s (%d bytes)\n", mediaType, absPath, len(mediaData))
-	return true, mediaType, filename, absPath, nil
+	return true, mediaType, onDiskFilename, absPath, nil
 }
 
 // Extract direct path from a WhatsApp media URL
@@ -1436,6 +1462,13 @@ func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, his
 					logger.Warnf("Failed to store history message: %v", err)
 				} else {
 					syncedCount++
+
+					// Backfilled messages never pass through handleMessage, so
+					// without this their media is only ever fetched on demand —
+					// by which point history-sync's CDN links are usually
+					// already stale. Fetch now, while they're still good.
+					prefetchIncomingMedia(client, messageStore, mediaType, msgID, chatJID, logger)
+
 					// Log successful message storage
 					if mediaType != "" {
 						logger.Infof("Stored message: [%s] %s -> %s: [%s: %s] %s",
