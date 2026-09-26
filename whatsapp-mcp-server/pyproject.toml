@@ -25,3 +25,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["main", "whatsapp", "audio"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "respx>=0.23.1",
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov=main --cov=whatsapp --cov=audio --cov-report=term-missing --cov-fail-under=85"
+
+[tool.coverage.report]
+fail_under = 85

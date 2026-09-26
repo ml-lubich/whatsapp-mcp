@@ -23,4 +23,4 @@ wa send "+1…" "hello"
 wa-mcp                           # MCP stdio (mac-wa-mcp)
 ```
 
-Repo layout: `wa-cli/` (Typer → PyPI `wa-mcp`), `whatsapp-mcp-server/` (MCP → PyPI `mac-wa-mcp`), `whatsapp-bridge/` (Go).
+Repo layout: `wa-mcp/` (Typer CLI → PyPI `wa-mcp`), `whatsapp-mcp-server/` (MCP server → PyPI `mac-wa-mcp`), `whatsapp-bridge/` (Go).

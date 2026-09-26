@@ -16,6 +16,20 @@ Here's an example of what you can do when it's connected to Claude.
 
 > *Caution:* as with many MCP servers, the WhatsApp MCP is subject to [the lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/). This means that project injection could lead to private data exfiltration.
 
+## Layout
+
+This repo has three subprojects:
+
+- **`whatsapp-bridge/`** (Go) — connects to WhatsApp's web API, handles QR-code auth,
+  and stores message history in a local SQLite DB. Run this first; everything else
+  talks to it over `localhost:8080` or reads its SQLite files directly.
+- **`whatsapp-mcp-server/`** (Python, PyPI `mac-wa-mcp`) — the MCP server. **Most
+  users install only this one**: it's what you point Claude Desktop/Cursor at (see
+  Installation below).
+- **`wa-mcp/`** (Python, PyPI `wa-mcp`) — the optional `wa` CLI: a developer/operator
+  convenience layer for driving the bridge from a terminal (start/stop daemons, send,
+  search) instead of through an MCP client. See [CLI (`wa`)](#cli-wa) below.
+
 ## Installation
 
 ### Prerequisites
@@ -120,7 +134,7 @@ developer/operator convenience layer — it doesn't replace the MCP server or th
 Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
 
 ```bash
-cd wa-cli
+cd wa-mcp
 uv sync
 uv run wa --help
 ```
@@ -128,7 +142,7 @@ uv run wa --help
 Or install it as a standalone tool so `wa` is on your `PATH`:
 
 ```bash
-uv tool install ./wa-cli
+uv tool install ./wa-mcp
 ```
 
 ### Before you start: authenticate the bridge

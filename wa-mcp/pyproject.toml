@@ -25,11 +25,11 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=wa_cli --cov-report=term-missing --cov-fail-under=80"
+addopts = "--cov=wa_cli --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 85
 
 [build-system]
 requires = ["hatchling"]

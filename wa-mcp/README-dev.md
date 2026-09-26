@@ -6,9 +6,9 @@ end-user install/usage docs (added in WP7).
 ## Dev setup
 
 ```
-cd wa-cli
+cd wa-mcp
 uv sync
-uv run pytest
+uv run pytest              # runs tests + coverage gate (--cov-fail-under=85, see pyproject.toml)
 uv run wa --help
 ```
 
