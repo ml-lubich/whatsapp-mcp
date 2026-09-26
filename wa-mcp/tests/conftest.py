@@ -182,6 +182,55 @@ def _build_messages_db(db_path: Path) -> None:
         conn.close()
 
 
+def build_contacts_db(db_path: Path, rows: list[tuple[str, str, str, str, str, str, str]]) -> None:
+    """Build a whatsapp.db with caller-supplied whatsmeow_contacts rows.
+
+    For edge-case/property tests (unicode names, injection-shaped strings,
+    many rows, ...) that need contact data beyond the fixed `sample_dbs`
+    set, using the same verbatim schema.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_WHATSMEOW_CONTACTS_SCHEMA)
+        conn.executemany(
+            "INSERT INTO whatsmeow_contacts "
+            "(our_jid, their_jid, first_name, full_name, push_name, "
+            "business_name, redacted_phone) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def build_chats_db(
+    db_path: Path,
+    chat_rows: list[tuple[str, str | None, str]],
+    message_rows: list[tuple] | None = None,
+) -> None:
+    """Build a messages.db with caller-supplied chats (and optional
+    messages) rows, for scale/edge-case tests (many rows, malformed
+    timestamps, ...) beyond the fixed `sample_dbs` set.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_CHATS_SCHEMA)
+        conn.execute(_MESSAGES_SCHEMA)
+        conn.executemany(
+            "INSERT INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)",
+            chat_rows,
+        )
+        if message_rows:
+            conn.executemany(
+                "INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                message_rows,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.fixture
 def sample_dbs(tmp_path: Path) -> SampleDbs:
     """Build whatsapp.db and messages.db in tmp_path using the exact real

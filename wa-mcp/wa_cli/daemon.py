@@ -185,7 +185,9 @@ def follow_step(logfile: Path, offset: int) -> tuple[list[str], int]:
         if logfile.stat().st_size < offset:
             # Log was truncated/rotated externally; restart from the top.
             offset = 0
-        with open(logfile, "r") as fh:
+        # errors="replace": a daemon log is written by an external process and
+        # may contain a stray non-UTF-8 byte; `wa logs -f` must not crash on it.
+        with open(logfile, "r", errors="replace") as fh:
             fh.seek(offset)
             new_lines = fh.readlines()
             new_offset = fh.tell()
@@ -197,7 +199,7 @@ def follow_step(logfile: Path, offset: int) -> tuple[list[str], int]:
 def tail_lines(logfile: Path, n: int) -> list[str]:
     """Return the last `n` lines of `logfile`, or [] if it doesn't exist."""
     try:
-        lines = logfile.read_text().splitlines(keepends=True)
+        lines = logfile.read_text(errors="replace").splitlines(keepends=True)
     except FileNotFoundError:
         return []
     return lines[-n:] if n > 0 else []

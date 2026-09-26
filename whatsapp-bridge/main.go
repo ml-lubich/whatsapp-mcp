@@ -820,6 +820,11 @@ func retryMediaDownload(
 // the same path on disk. Documents keep their original name; the ID is just
 // appended before the extension, same as the auto-generated names.
 func uniqueMediaFilename(filename, messageID string) string {
+	// filename comes straight from the sender's own document message (see
+	// extractMediaInfo), so it is attacker-controlled. Without confining it to
+	// a single path element first, a name like "../../etc/passwd" survives
+	// into localPath in downloadMedia and writes outside store/<chat>.
+	filename = filepath.Base(filename)
 	ext := filepath.Ext(filename)
 	base := strings.TrimSuffix(filename, ext)
 	return fmt.Sprintf("%s_%s%s", base, messageID, ext)
@@ -979,10 +984,11 @@ func extractDirectPathFromURL(url string) string {
 	return "/" + pathPart
 }
 
-// Start a REST API server to expose the WhatsApp client functionality
-func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
-	// Handler for sending messages
-	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
+// makeSendHandler builds the /api/send handler. Split out from
+// startRESTServer so tests can drive it directly with httptest, without
+// binding a real port or registering twice on the global ServeMux.
+func makeSendHandler(client *whatsmeow.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1025,10 +1031,14 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Success: success,
 			Message: message,
 		})
-	})
+	}
+}
 
-	// Handler for downloading media
-	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
+// makeDownloadHandler builds the /api/download handler. Same reasoning as
+// makeSendHandler: a named, directly callable func instead of an anonymous
+// closure registered straight onto the global mux.
+func makeDownloadHandler(client *whatsmeow.Client, messageStore *MessageStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1076,7 +1086,13 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Filename: filename,
 			Path:     path,
 		})
-	})
+	}
+}
+
+// Start a REST API server to expose the WhatsApp client functionality
+func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
+	http.HandleFunc("/api/send", makeSendHandler(client))
+	http.HandleFunc("/api/download", makeDownloadHandler(client, messageStore))
 
 	// Start the server
 	serverAddr := fmt.Sprintf(":%d", port)
@@ -1571,14 +1587,14 @@ func analyzeOggOpus(data []byte) (duration uint32, waveform []byte, err error) {
 			// Look for "OpusHead" marker in this page
 			pageData := data[i : i+pageSize]
 			headPos := bytes.Index(pageData, []byte("OpusHead"))
-			if headPos >= 0 && headPos+12 < len(pageData) {
-				// Found OpusHead, extract sample rate and pre-skip
+			if headPos >= 0 {
+				// Found OpusHead, extract sample rate and pre-skip.
 				// OpusHead format: Magic(8) + Version(1) + Channels(1) + PreSkip(2) + SampleRate(4) + ...
-				headPos += 8 // Skip "OpusHead" marker
-				// PreSkip is 2 bytes at offset 10
-				if headPos+12 <= len(pageData) {
-					preSkip = binary.LittleEndian.Uint16(pageData[headPos+10 : headPos+12])
-					sampleRate = binary.LittleEndian.Uint32(pageData[headPos+12 : headPos+16])
+				headPos += 8 // Skip "OpusHead" marker; headPos now points at Version.
+				// PreSkip is 2 bytes right after Version+Channels, i.e. offset 2 from here.
+				if headPos+8 <= len(pageData) {
+					preSkip = binary.LittleEndian.Uint16(pageData[headPos+2 : headPos+4])
+					sampleRate = binary.LittleEndian.Uint32(pageData[headPos+4 : headPos+8])
 					foundOpusHead = true
 					fmt.Printf("Found OpusHead: sampleRate=%d, preSkip=%d\n", sampleRate, preSkip)
 				}
@@ -1643,8 +1659,12 @@ func placeholderWaveform(duration uint32) []byte {
 	const waveformLength = 64
 	waveform := make([]byte, waveformLength)
 
-	// Seed the random number generator for consistent results with the same duration
-	rand.Seed(int64(duration))
+	// A local generator seeded from duration gives consistent results for the
+	// same duration. The package-level rand.Seed used to do this but has been
+	// a documented no-op since Go 1.24, which silently made every waveform
+	// non-deterministic; rand.New(rand.NewSource(...)) is what the stdlib
+	// itself recommends as the replacement.
+	rng := rand.New(rand.NewSource(int64(duration)))
 
 	// Create a more natural looking waveform with some patterns and variability
 	// rather than completely random values
@@ -1663,7 +1683,7 @@ func placeholderWaveform(duration uint32) []byte {
 		val += (baseAmplitude / 2) * math.Sin(pos*math.Pi*frequencyFactor*16)
 
 		// Add some randomness to make it look more natural
-		val += (rand.Float64() - 0.5) * 15
+		val += (rng.Float64() - 0.5) * 15
 
 		// Add some fade-in and fade-out effects
 		fadeInOut := math.Sin(pos * math.Pi)

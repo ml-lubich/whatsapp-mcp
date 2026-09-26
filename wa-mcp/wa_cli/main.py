@@ -202,7 +202,10 @@ def contacts(query: str) -> None:
     if not db_path.exists():
         _fail(f"contacts database not found at {db_path} — has the bridge ever run?")
 
-    results = db.search_contacts(db_path, query)
+    try:
+        results = db.search_contacts(db_path, query)
+    except Exception as exc:
+        _fail(f"could not read {db_path}: {exc}")
 
     table = ui.styled_table("wa contacts", ["JID", "Name", "Push name", "Business name"])
     for c in results:
@@ -220,7 +223,10 @@ def chats(limit: int = typer.Option(20, "--limit", help="Number of chats to show
     if not db_path.exists():
         _fail(f"messages database not found at {db_path} — has the bridge ever run?")
 
-    results = db.list_chats(db_path, limit=limit)
+    try:
+        results = db.list_chats(db_path, limit=limit)
+    except Exception as exc:
+        _fail(f"could not read {db_path}: {exc}")
 
     table = ui.styled_table("wa chats", ["Name", "JID", "Last activity", "Kind"])
     for c in results:
@@ -250,9 +256,17 @@ def doctor() -> None:
     ui.console.print(ui.banner())
     checks: list[tuple[str, bool, str]] = []
 
-    bridge_bin = config.bridge_binary()
-    bridge_bin_ok = bridge_bin.exists() and (Path(bridge_bin).stat().st_mode & 0o111 != 0)
-    checks.append(("bridge binary present & executable", bridge_bin_ok, f"expected at {bridge_bin}"))
+    try:
+        bridge_bin = config.bridge_binary()
+        bridge_bin_ok = bridge_bin.exists() and (Path(bridge_bin).stat().st_mode & 0o111 != 0)
+        bridge_bin_hint = f"expected at {bridge_bin}"
+    except RuntimeError as exc:
+        # Fresh installs (e.g. `pip install wa-mcp`) run outside the
+        # whatsapp-mcp repo clone, so repo-root discovery legitimately fails
+        # until WA_REPO is set — doctor must report that cleanly, not crash.
+        bridge_bin_ok = False
+        bridge_bin_hint = f"{exc} (set WA_REPO to the whatsapp-mcp repo clone)"
+    checks.append(("bridge binary present & executable", bridge_bin_ok, bridge_bin_hint))
 
     uv_ok = shutil.which("uv") is not None
     checks.append(("uv on PATH", uv_ok, "install uv: https://docs.astral.sh/uv/"))
@@ -266,17 +280,18 @@ def doctor() -> None:
 
     dbs_ok = True
     db_detail = ""
-    for label, path, check in (
-        ("whatsapp.db", config.contacts_db(), lambda p: db.search_contacts(p, "")),
-        ("messages.db", config.messages_db(), lambda p: db.list_chats(p, limit=1)),
+    for label, path_fn, check in (
+        ("whatsapp.db", config.contacts_db, lambda p: db.search_contacts(p, "")),
+        ("messages.db", config.messages_db, lambda p: db.list_chats(p, limit=1)),
     ):
         try:
+            path = path_fn()
             if not path.exists():
                 raise FileNotFoundError(path)
             check(path)
-        except Exception:
+        except Exception as exc:
             dbs_ok = False
-            db_detail = f"{label} not present or unreadable at {path}"
+            db_detail = f"{label} not present or unreadable ({exc})"
     checks.append(("store DBs present & readable", dbs_ok, db_detail or "check the store/ directory"))
 
     all_ok = True

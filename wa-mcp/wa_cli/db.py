@@ -10,6 +10,7 @@ impossible at the SQLite level, never via the app-level connection.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -106,6 +107,10 @@ def list_chats(db_path: Path, limit: int = 20) -> list[Chat]:
     Timestamps are stored as ISO-8601 text with a UTC offset (lexically
     sortable, hence the plain ORDER BY), and are parsed into datetimes via
     datetime.fromisoformat. A null chat name falls back to the JID.
+
+    A negative limit is clamped to 0 rather than passed to SQLite as-is:
+    SQLite treats any negative LIMIT as "no limit", so a caller typo (e.g.
+    `--limit -5`) would otherwise silently dump the entire table.
     """
     conn = _connect_ro(db_path)
     try:
@@ -116,7 +121,7 @@ def list_chats(db_path: Path, limit: int = 20) -> list[Chat]:
             ORDER BY last_message_time DESC
             LIMIT ?
             """,
-            (limit,),
+            (max(limit, 0),),
         ).fetchall()
     finally:
         conn.close()
@@ -138,16 +143,19 @@ def resolve_chat_jid(db_path: Path, recipient: str) -> str | None:
     """Best-effort chat JID for a recipient, for the send-time duplicate guard.
 
     A recipient already in JID form (contains "@") is returned as-is; plain
-    phone digits are resolved against messages.db's chats table.
+    phone digits are resolved against messages.db's chats table. Non-digit
+    characters (`+`, spaces, dashes) are stripped before matching, since
+    JIDs are stored as bare digits (e.g. "+1 415-786-3858" -> "14157863858").
     """
     if "@" in recipient:
         return recipient
 
+    digits = re.sub(r"\D", "", recipient)
     conn = _connect_ro(db_path)
     try:
         row = conn.execute(
             "SELECT jid FROM chats WHERE jid LIKE ? LIMIT 1",
-            (f"%{recipient}%",),
+            (f"%{digits}%",),
         ).fetchone()
     finally:
         conn.close()
@@ -159,6 +167,8 @@ def recent_messages(db_path: Path, chat_jid: str, limit: int = 10) -> list[Messa
 
     Backs the send-time duplicate guard and the recent-thread context printed
     to the operator/agent before a send is attempted.
+
+    A negative limit is clamped to 0 for the same reason as in list_chats.
     """
     conn = _connect_ro(db_path)
     try:
@@ -170,7 +180,7 @@ def recent_messages(db_path: Path, chat_jid: str, limit: int = 10) -> list[Messa
             ORDER BY timestamp DESC
             LIMIT ?
             """,
-            (chat_jid, limit),
+            (chat_jid, max(limit, 0)),
         ).fetchall()
     finally:
         conn.close()

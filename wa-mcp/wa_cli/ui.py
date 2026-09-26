@@ -43,7 +43,10 @@ def gradient_text(s: str, start_hex: str, end_hex: str) -> Text:
     start color, avoiding division by zero) explicitly.
     """
     text = Text(s)
-    n = len(s)
+    # Use the sanitized length, not len(s): rich's Text() strips certain
+    # ASCII control codes (bell, backspace, vtab, form-feed, CR) on
+    # construction, so text.plain can be shorter than the raw input.
+    n = len(text.plain)
     if n == 0:
         return text
     if n == 1:

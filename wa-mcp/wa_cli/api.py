@@ -21,13 +21,14 @@ def send_message(recipient: str, message: str, *, base_url: str) -> tuple[bool, 
     Returns (ok, detail) where detail is the bridge's "message" field, or
     an actionable message if the bridge is unreachable.
     """
+    base_url = base_url.rstrip("/")
     try:
         response = httpx.post(
             f"{base_url}/api/send",
             json={"recipient": recipient, "message": message},
             timeout=SEND_TIMEOUT,
         )
-    except httpx.ConnectError:
+    except (httpx.NetworkError, httpx.ProtocolError):
         return False, CONNECT_ERROR_DETAIL
     except httpx.TimeoutException:
         return False, TIMEOUT_DETAIL
@@ -37,6 +38,8 @@ def send_message(recipient: str, message: str, *, base_url: str) -> tuple[bool, 
     except ValueError:
         # The bridge rejects bad requests with plain-text http.Error bodies.
         return False, response.text.strip() or f"bridge returned HTTP {response.status_code}"
+    if not isinstance(body, dict):
+        return False, f"bridge returned HTTP {response.status_code}"
     return bool(body.get("success")), body.get("message", "")
 
 
@@ -45,13 +48,14 @@ def download_media(message_id: str, chat_jid: str, *, base_url: str) -> tuple[bo
 
     Returns (ok, filename, path_or_detail).
     """
+    base_url = base_url.rstrip("/")
     try:
         response = httpx.post(
             f"{base_url}/api/download",
             json={"message_id": message_id, "chat_jid": chat_jid},
             timeout=SEND_TIMEOUT,
         )
-    except httpx.ConnectError:
+    except (httpx.NetworkError, httpx.ProtocolError):
         return False, "", CONNECT_ERROR_DETAIL
     except httpx.TimeoutException:
         return False, "", TIMEOUT_DETAIL
@@ -60,6 +64,8 @@ def download_media(message_id: str, chat_jid: str, *, base_url: str) -> tuple[bo
         body = response.json()
     except ValueError:
         return False, "", response.text.strip() or f"bridge returned HTTP {response.status_code}"
+    if not isinstance(body, dict):
+        return False, "", f"bridge returned HTTP {response.status_code}"
 
     ok = bool(body.get("success"))
     if ok:
@@ -73,8 +79,9 @@ def bridge_alive(base_url: str, timeout: float = 1.0) -> bool:
     Any HTTP response (including 404 — the bridge has no route at "/")
     means the server is up. Only a connection error or timeout means down.
     """
+    base_url = base_url.rstrip("/")
     try:
         httpx.get(f"{base_url}/", timeout=timeout)
-    except (httpx.ConnectError, httpx.TimeoutException):
+    except (httpx.NetworkError, httpx.ProtocolError, httpx.TimeoutException):
         return False
     return True
