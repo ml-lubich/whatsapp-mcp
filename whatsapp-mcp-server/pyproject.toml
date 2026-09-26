@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "ml-lubich" }]
 dependencies = [
     "httpx>=0.28.1",
-    "mcp[cli]>=1.6.0",
+    "mcp[cli]>=1.6.0,<2",
     "requests>=2.32.3",
 ]
 
