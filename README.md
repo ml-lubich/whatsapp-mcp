@@ -62,6 +62,30 @@ This repo has three subprojects:
 
    After approximately 20 days, you will might need to re-authenticate.
 
+   **Keeping it running (macOS, recommended):** `go run`/a manually-started binary dies when the
+   terminal closes and misses messages that arrive while it's down (the next connection then only
+   gets them via history-sync backfill, which has weaker media-prefetch guarantees than a live
+   connection). Run it under launchd instead:
+
+   ```bash
+   cd whatsapp-bridge && go build -o whatsapp-bridge .
+   ```
+
+   Create `~/Library/LaunchAgents/com.mlubich.whatsapp-bridge.plist` with `ProgramArguments`
+   pointing at that built binary, `WorkingDirectory` set to `whatsapp-bridge/` (it opens `store/`
+   relative to cwd), `RunAtLoad` + `KeepAlive` both `true`, and `StandardOutPath`/`StandardErrorPath`
+   pointed at a log file (e.g. `~/Library/Logs/whatsapp-bridge.log`) — otherwise prefetch failures
+   only ever print to a terminal nobody's watching. Load it with:
+
+   ```bash
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mlubich.whatsapp-bridge.plist
+   ```
+
+   Only ever run **one** bridge instance against `store/` at a time — a second one logs in with the
+   same linked-device session and WhatsApp sends the older connection a `StreamReplaced` error,
+   dropping it. If you also use the `wa` CLI, use `wa down`/`wa up` only for the `mcp` daemon once
+   the bridge itself is launchd-managed; don't let both start a bridge process.
+
 3. **Connect to the MCP server**
 
    Copy the below json with the appropriate {{PATH}} values:
