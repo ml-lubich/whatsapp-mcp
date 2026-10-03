@@ -80,3 +80,16 @@ def messages_db() -> Path:
 
 def bridge_url() -> str:
     return BRIDGE_URL
+
+
+def desktop_root() -> Path:
+    """WhatsApp Desktop's group container (read-only media source)."""
+    override = os.environ.get("WA_DESKTOP_ROOT")
+    if override:
+        return Path(override)
+    return Path.home() / "Library" / "Group Containers" / "group.net.whatsapp.WhatsApp.shared"
+
+
+def media_dir() -> Path:
+    """Default output dir for `wa media` copies (~/.wa-cli/media)."""
+    return state_dir() / "media"

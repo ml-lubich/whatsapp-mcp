@@ -55,6 +55,32 @@ def build_schema() -> dict[str, Any]:
                     {"name": "chat_jid", "type": "str", "required": True, "flags": []},
                 ],
             },
+            {
+                "name": "media get",
+                "help": "Copy a message's image/video/pdf to a local path (bridge, then WhatsApp Desktop store)",
+                "params": [
+                    {"name": "message_id", "type": "str", "required": True, "flags": []},
+                    {"name": "chat", "type": "str", "required": False, "flags": ["-c", "--chat"]},
+                    {"name": "output", "type": "path", "required": False, "flags": ["-o", "--output"]},
+                    {"name": "json", "type": "bool", "required": False, "flags": ["-j", "--json"]},
+                ],
+            },
+            {
+                "name": "media latest",
+                "help": "Resolve the newest N media messages (optionally one chat)",
+                "params": [
+                    {"name": "chat", "type": "str", "required": False, "flags": ["-c", "--chat"]},
+                    {"name": "name", "type": "str", "required": False, "flags": ["--name"]},
+                    {"name": "count", "type": "int", "required": False, "flags": ["-n", "--count"]},
+                    {"name": "output", "type": "path", "required": False, "flags": ["-o", "--output"]},
+                    {"name": "json", "type": "bool", "required": False, "flags": ["-j", "--json"]},
+                ],
+            },
+            {"name": "mcp enable", "help": "Register the MCP server in Claude Code (user scope)", "params": [
+                {"name": "dry_run", "type": "bool", "required": False, "flags": ["-n", "--dry-run"]}]},
+            {"name": "mcp disable", "help": "Unregister the MCP server", "params": [
+                {"name": "dry_run", "type": "bool", "required": False, "flags": ["-n", "--dry-run"]}]},
+            {"name": "mcp status", "help": "Is the MCP server registered", "params": []},
             {"name": "doctor", "help": "Health report", "params": []},
             {"name": "agent schema", "help": "This JSON schema", "params": []},
             {"name": "agent guide", "help": "Markdown playbook", "params": []},
@@ -74,6 +100,8 @@ wa up
 wa send <jid|phone> "text"   # only when user asks
 wa send <jid|phone> "text" --force   # override the duplicate guard
 wa contacts <query>
+wa media get <message-id> [--chat JID] -j   # images/video/pdf -> local file path
+wa media latest --name "group" -n 3 -j
 ```
 
 Prefer CLI for simple ops; MCP (`wa-mcp`) for complex tool-calling.

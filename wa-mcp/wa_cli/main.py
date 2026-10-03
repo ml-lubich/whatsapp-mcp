@@ -15,7 +15,7 @@ from pathlib import Path
 
 import typer
 
-from wa_cli import agent, api, config, daemon, db, ui
+from wa_cli import agent, api, config, daemon, db, mcp_reg, media, ui
 
 app = typer.Typer(
     name="wa",
@@ -304,6 +304,124 @@ def doctor() -> None:
         ui.console.print(ui.badge("up"), "all checks passed")
     else:
         _fail("one or more doctor checks failed")
+
+
+media_app = typer.Typer(
+    name="media",
+    help="Resolve received media to a local file (bridge first, WhatsApp Desktop store fallback).",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(media_app, name="media")
+
+_OUT_OPT = typer.Option(None, "-o", "--output", help="Output dir (default ~/.wa-cli/media).")
+_JSON_OPT = typer.Option(False, "-j", "--json", help="Machine-readable JSON.")
+
+
+def _media_kwargs(output: Path | None) -> dict:
+    return dict(
+        messages_db=config.messages_db(),
+        bridge_url=config.bridge_url(),
+        desktop_root=config.desktop_root(),
+        out_dir=output or config.media_dir(),
+    )
+
+
+def _result_dict(r: media.Result) -> dict:
+    return {
+        "message_id": r.message_id,
+        "chat_jid": r.chat_jid,
+        "path": str(r.path) if r.path else None,
+        "source": r.source,
+        "size": r.size,
+        "error": r.error,
+    }
+
+
+def _media_fail(msg: str, as_json: bool) -> None:
+    if as_json:
+        typer.echo(json.dumps({"error": msg}))
+        raise typer.Exit(code=1)
+    _fail(msg)
+
+
+@media_app.command("get")
+def media_get(
+    message_id: str = typer.Argument(..., help="Message ID (see `wa chats` / the MCP list_messages)."),
+    chat: str | None = typer.Option(None, "-c", "--chat", help="Chat JID (needed only if the id is ambiguous)."),
+    output: Path | None = _OUT_OPT,
+    as_json: bool = _JSON_OPT,
+) -> None:
+    """Copy one message's image/video/pdf to a local path and print it."""
+    try:
+        res = media.resolve(message_id, chat, **_media_kwargs(output))
+    except media.MediaError as exc:
+        _media_fail(str(exc), as_json)
+        return
+    typer.echo(json.dumps(_result_dict(res)) if as_json else str(res.path))
+
+
+@media_app.command("latest")
+def media_latest(
+    chat: str | None = typer.Option(None, "-c", "--chat", help="Chat JID."),
+    name: str | None = typer.Option(None, "--name", help="Chat name (substring, case-insensitive)."),
+    count: int = typer.Option(1, "-n", "--count", help="How many recent media messages."),
+    output: Path | None = _OUT_OPT,
+    as_json: bool = _JSON_OPT,
+) -> None:
+    """Resolve the newest N media messages (optionally in one chat)."""
+    try:
+        results = media.latest(chat_jid=chat, name=name, limit=count, **_media_kwargs(output))
+    except media.MediaError as exc:
+        _media_fail(str(exc), as_json)
+        return
+    if as_json:
+        typer.echo(json.dumps([_result_dict(r) for r in results]))
+    else:
+        for r in results:
+            typer.echo(f"{r.message_id}\t{r.path}" if r.path else f"{r.message_id}\tERROR: {r.error}")
+    if not any(r.path for r in results):
+        raise typer.Exit(code=1)
+
+
+mcp_app = typer.Typer(
+    name="mcp",
+    help="Register/unregister the whatsapp MCP server in Claude Code on demand.",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(mcp_app, name="mcp")
+
+_DRY_OPT = typer.Option(False, "-n", "--dry-run", help="Print the command without running it.")
+
+
+def _mcp_apply(cmd: list[str], dry_run: bool, done: str) -> None:
+    if dry_run:
+        typer.echo(" ".join(cmd))
+        return
+    rc, out = mcp_reg.run(cmd)
+    if rc != 0:
+        _fail(f"{' '.join(cmd)} failed: {out}")
+    ui.console.print(ui.badge("up"), done)
+
+
+@mcp_app.command("enable")
+def mcp_enable(dry_run: bool = _DRY_OPT) -> None:
+    """Add the user-scope MCP registration (`claude mcp add`)."""
+    _mcp_apply(mcp_reg.enable_cmd(), dry_run, "whatsapp MCP enabled (new Claude sessions will start it)")
+
+
+@mcp_app.command("disable")
+def mcp_disable(dry_run: bool = _DRY_OPT) -> None:
+    """Remove the user-scope MCP registration (`claude mcp remove`)."""
+    _mcp_apply(mcp_reg.disable_cmd(), dry_run, "whatsapp MCP disabled")
+
+
+@mcp_app.command("status")
+def mcp_status() -> None:
+    """Show whether the whatsapp MCP server is registered."""
+    rc, _ = mcp_reg.run(mcp_reg.status_cmd())
+    ui.console.print(ui.badge("up" if rc == 0 else "down"), "enabled" if rc == 0 else "disabled")
 
 
 agent_app = typer.Typer(

@@ -3,12 +3,15 @@ from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 import os.path
+from pathlib import Path
 import requests
 import json
 import audio
+import sys
 
 MESSAGES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'messages.db')
 WHATSAPP_API_BASE_URL = "http://localhost:8080/api"
+SIBLING_CLI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'wa-mcp')
 
 @dataclass
 class Message:
@@ -785,3 +788,42 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         return None
+
+
+
+def _load_media():
+    """Import the shared resolver (wa_cli.media, stdlib-only) lazily, on first download.
+
+    Installed `wa-mcp` wins; otherwise fall back to the sibling checkout. None if absent.
+    """
+    try:
+        from wa_cli import config, media
+    except ImportError:
+        if not os.path.isdir(SIBLING_CLI_DIR):
+            return None
+        sys.path.insert(0, SIBLING_CLI_DIR)
+        try:
+            from wa_cli import config, media
+        except ImportError:
+            return None
+    return config, media
+
+
+def resolve_media(message_id: str, chat_jid: str) -> Tuple[Optional[str], str]:
+    """Bridge download, then WhatsApp Desktop's local store; returns (path, error detail)."""
+    loaded = _load_media()
+    if loaded is None:  # wa-mcp not importable: bridge-only, as before
+        path = download_media(message_id, chat_jid)
+        return (path, "") if path else (None, "Failed to download media")
+    config, media = loaded
+    try:
+        res = media.resolve(
+            message_id, chat_jid,
+            messages_db=Path(MESSAGES_DB_PATH),
+            bridge_url=WHATSAPP_API_BASE_URL.removesuffix("/api"),
+            desktop_root=config.desktop_root(),
+            out_dir=config.media_dir(),
+        )
+    except media.MediaError as exc:
+        return None, str(exc)
+    return str(res.path), ""

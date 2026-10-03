@@ -189,6 +189,9 @@ WhatsApp auth state — a "bridge up" badge only means the process is listening.
 | `wa send <recipient> <message>` | Send a WhatsApp message through the bridge REST API. |
 | `wa contacts <query>` | Search contacts (read-only) in the local contacts store. |
 | `wa chats [--limit N]` | List recent chats (read-only), most recent first. |
+| `wa media get <message-id> [-c JID] [-o DIR] [-j]` | Copy a message's image/video/pdf to a local file and print the path (see below). |
+| `wa media latest [-c JID \| --name TEXT] [-n N] [-o DIR] [-j]` | Same for the newest N media messages. |
+| `wa mcp enable\|disable\|status [-n]` | Register/unregister the MCP server in Claude Code (user scope) on demand. |
 | `wa doctor` | Run aggregated health checks (binary, `uv`, daemons, DBs) with an overall verdict. |
 
 Run `wa <command> --help` for full per-command help.
@@ -227,6 +230,40 @@ wa doctor
 # Stop both daemons
 wa down
 ```
+
+### Media: `wa media` and the MCP `download_media` tool
+
+Both use one resolver (`wa-mcp/wa_cli/media.py`): (1) your earlier copy, (2) the bridge's
+`/api/download`, (3) a read-only lookup in WhatsApp Desktop's local store
+(`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite`, joined on
+`ZWAMESSAGE.ZSTANZAID` = bridge message id, file at `Message/<ZMEDIALOCALPATH>`). The file is
+always **copied** (never moved) to `~/.wa-cli/media/<chat-jid>/<message-id>.<ext>`; override with `-o DIR`.
+Why the fallback: WhatsApp's CDN returns 403 for older media and the phone no longer holds it
+("media no longer available on phone"), so the bridge cannot fetch it, but Desktop downloaded it on arrival.
+If macOS blocks the Desktop container, the error says to grant **Full Disk Access** to the app running `wa`
+(Terminal/iTerm/Claude Code); nothing tries to bypass it. All databases are opened `mode=ro`.
+
+```bash
+wa media get 3B68BAE7B5A4D9333750 --chat 120363430434063376@g.us -j
+wa media latest --name "family" -n 3 -j
+```
+
+### MCP on demand, bridge always on
+
+The **Go bridge stays a launchd service** (`com.mlubich.whatsapp-bridge`): it is the only thing recording
+incoming messages, so it must keep running. The **MCP server does not**: it is a stdio process that
+Claude Code spawns for every registered server at session start, and importing it does no work (no bridge
+spawn, no DB reads; the media resolver loads on the first `download_media` call). Keep it unregistered and
+turn it on only when you want tools:
+
+```bash
+wa mcp enable -n   # prints: claude mcp add --scope user whatsapp -- uv --directory <repo>/whatsapp-mcp-server run main.py
+wa mcp enable      # registers; new Claude sessions start it
+wa mcp disable     # claude mcp remove --scope user whatsapp
+wa mcp status
+```
+
+Most tasks need only the CLI (`wa chats`, `wa media ...`), which costs nothing when idle.
 
 ### State directory
 

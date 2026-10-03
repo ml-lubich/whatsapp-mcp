@@ -14,7 +14,7 @@ from whatsapp import (
     send_message as whatsapp_send_message,
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
-    download_media as whatsapp_download_media
+    resolve_media as whatsapp_resolve_media
 )
 
 # Initialize FastMCP server
@@ -342,8 +342,11 @@ def send_audio_message(recipient: str, media_path: str) -> Dict[str, Any]:
 
 @mcp.tool()
 def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
-    """Download media from a WhatsApp message and get the local file path.
-    
+    """Get a local file path for a WhatsApp message's image/video/audio/document.
+
+    Tries the bridge download, then WhatsApp Desktop's local media store; the
+    file is copied under ~/.wa-cli/media. Same resolver as `wa media get`.
+
     Args:
         message_id: The ID of the message containing the media
         chat_jid: The JID of the chat containing the message
@@ -351,19 +354,18 @@ def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
     Returns:
         A dictionary containing success status, a status message, and the file path if successful
     """
-    file_path = whatsapp_download_media(message_id, chat_jid)
-    
+    file_path, detail = whatsapp_resolve_media(message_id, chat_jid)
+
     if file_path:
         return {
             "success": True,
-            "message": "Media downloaded successfully",
+            "message": "Media saved",
             "file_path": file_path
         }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to download media"
-        }
+    return {
+        "success": False,
+        "message": detail
+    }
 
 def run() -> None:
     """Console entry point for `wa-mcp` (stdio MCP server)."""

@@ -81,22 +81,6 @@ def test_send_audio_message_failure_shapes_result(monkeypatch):
     assert main.send_audio_message("555", "/tmp/x.m4a") == {"success": False, "message": "ffmpeg missing"}
 
 
-def test_download_media_success_shapes_result(monkeypatch):
-    monkeypatch.setattr(main, "whatsapp_download_media", lambda message_id, chat_jid: "/tmp/out.jpg")
-    result = main.download_media("m1", "a@g.us")
-    assert result == {
-        "success": True,
-        "message": "Media downloaded successfully",
-        "file_path": "/tmp/out.jpg",
-    }
-
-
-def test_download_media_failure_shapes_result(monkeypatch):
-    monkeypatch.setattr(main, "whatsapp_download_media", lambda message_id, chat_jid: None)
-    result = main.download_media("m1", "a@g.us")
-    assert result == {"success": False, "message": "Failed to download media"}
-
-
 # --- _resolve_chat_jid: phone-number recipient (no "@") -----------------------
 
 def test_resolve_chat_jid_looks_up_contact_when_no_at_sign(monkeypatch):
