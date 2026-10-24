@@ -24,3 +24,10 @@ wa-mcp                           # MCP stdio (mac-wa-mcp)
 ```
 
 Repo layout: `wa-mcp/` (Typer CLI → PyPI `wa-mcp`), `whatsapp-mcp-server/` (MCP server → PyPI `mac-wa-mcp`), `whatsapp-bridge/` (Go).
+
+## CI
+
+GitHub Actions runs the Python test suite for both `wa-mcp/` and
+`whatsapp-mcp-server/` on macOS with Python 3.12. Each package's pytest
+configuration enforces at least 85% coverage; CI installs from its locked
+`uv.lock` before running the tests.

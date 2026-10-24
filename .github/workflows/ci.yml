@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: ${{ matrix.project }} (Python 3.12)
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - wa-mcp
+          - whatsapp-mcp-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "${{ matrix.project }}/uv.lock"
+      - name: Install package and dev dependencies
+        working-directory: ${{ matrix.project }}
+        run: uv sync --locked --python 3.12
+      - name: Run tests with coverage gate
+        working-directory: ${{ matrix.project }}
+        run: uv run --python 3.12 pytest
