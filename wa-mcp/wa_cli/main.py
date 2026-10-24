@@ -11,6 +11,7 @@ import difflib
 import json
 import shutil
 import time
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import typer
@@ -21,8 +22,36 @@ app = typer.Typer(
     name="wa",
     help="Operate the local WhatsApp bridge + MCP stack.",
     no_args_is_help=True,
+    add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        try:
+            package_version = version("wa-mcp")
+        except PackageNotFoundError:
+            from wa_cli import __version__
+
+            package_version = __version__
+        typer.echo(f"wa {package_version}")
+        raise typer.Exit()
+
+
+@app.callback()
+def root_options(
+    version_flag: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the CLI version and exit.",
+    ),
+) -> None:
+    """Operate the local WhatsApp bridge and MCP stack."""
+    _ = version_flag
 
 DEFAULT_TAIL_LINES = 50
 
@@ -310,6 +339,7 @@ media_app = typer.Typer(
     name="media",
     help="Resolve received media to a local file (bridge first, WhatsApp Desktop store fallback).",
     no_args_is_help=True,
+    add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(media_app, name="media")
@@ -388,6 +418,7 @@ mcp_app = typer.Typer(
     name="mcp",
     help="Register/unregister the whatsapp MCP server in Claude Code on demand.",
     no_args_is_help=True,
+    add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(mcp_app, name="mcp")
@@ -428,6 +459,7 @@ agent_app = typer.Typer(
     name="agent",
     help="Machine-readable schema and playbook for LLM/automation use.",
     no_args_is_help=True,
+    add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 app.add_typer(agent_app, name="agent")

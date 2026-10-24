@@ -49,6 +49,35 @@ def test_help_lists_exactly_eight_commands():
         assert cmd in result.output
 
 
+def test_root_help_contract_and_no_generated_completion_options():
+    for option in ("-h", "--help"):
+        result = runner.invoke(main.app, [option])
+        assert result.exit_code == 0
+        flat = _flat(result.output)
+        for command in EXPECTED_COMMANDS:
+            assert command in flat
+        assert "--install-completion" not in flat
+        assert "--show-completion" not in flat
+
+
+def test_root_without_command_shows_help_without_starting_bridge(monkeypatch):
+    calls = []
+    monkeypatch.setattr(daemon, "up_all", lambda **kwargs: calls.append(kwargs))
+
+    result = runner.invoke(main.app, [])
+
+    assert result.exit_code == 2
+    assert "Usage: wa" in _flat(result.output)
+    assert calls == []
+
+
+def test_version_options_are_read_only():
+    for option in ("-V", "--version"):
+        result = runner.invoke(main.app, [option])
+        assert result.exit_code == 0
+        assert "wa" in result.output.lower()
+
+
 def test_app_registers_exactly_eight_commands():
     registered = {c.name or c.callback.__name__ for c in main.app.registered_commands}
     assert registered == EXPECTED_COMMANDS
