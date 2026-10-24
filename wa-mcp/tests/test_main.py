@@ -8,6 +8,7 @@ functions that wa_cli.main calls.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -19,12 +20,17 @@ from typer.testing import CliRunner
 from wa_cli import agent, api, daemon, db, main
 
 runner = CliRunner()
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def _flat(output: str) -> str:
     """Collapse rich's box-drawing/line-wrapping so multi-word phrases can be
     asserted on regardless of where the terminal width wrapped them."""
-    return " ".join(output.split())
+    return " ".join(_ANSI_ESCAPE.sub("", output).split())
+
+
+def test_flat_removes_ansi_sequences() -> None:
+    assert _flat("\x1b[1mUsage:\x1b[0m wa\x1b[31m up\x1b[0m") == "Usage: wa up"
 
 EXPECTED_COMMANDS = {
     "up",
