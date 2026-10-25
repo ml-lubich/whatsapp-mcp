@@ -1,6 +1,6 @@
 [project]
 name = "wa-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "wa-mcp — WhatsApp CLI (wa) + agent schema; pair with MCP entry wa-mcp from mac-wa-mcp / server"
 readme = "README.md"
 requires-python = ">=3.11"
